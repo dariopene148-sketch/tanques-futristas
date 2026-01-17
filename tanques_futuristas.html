@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Tanques Futuristas: Pase de Batalla</title>
+<style>
+body { margin:0; font-family: Arial,sans-serif; background:#111; color:#fff;}
+#gameCanvas{display:block;margin:0 auto;background:#222;cursor:pointer;}
+#tutorial{
+position:fixed;top:0;left:0;width:100%;height:100%;
+background:rgba(0,0,0,0.85);
+display:flex;flex-direction:column;
+justify-content:center;align-items:center;
+z-index:1000;text-align:center;padding:20px;}
+#tutorial h2{font-size:2em;margin-bottom:20px;}
+#tutorial p{font-size:1.2em;margin:5px 0;}
+#startBtn{margin-top:20px;padding:10px 30px;font-size:1.2em;background:#28a745;border:none;color:#fff;cursor:pointer;border-radius:5px;}
+#startBtn:hover{background:#1e7e34;}
+
+#pase{
+position:fixed;top:10px;right:10px;width:250px;height:60px;background:#333;border:2px solid #fff;border-radius:10px;padding:10px;z-index:1001;}
+#paseBar{
+width:100%;height:20px;background:#555;border-radius:10px;overflow:hidden;}
+#paseProgreso{
+height:20px;width:0%;background:#FFD700;}
+#paseTexto{margin-top:5px;font-size:14px;text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="tutorial">
+<h2>Bienvenido a Tanques Futuristas!</h2>
+<p>➡ Haz clic en una unidad y luego en una casilla para moverla.</p>
+<p>💥 Cada unidad dispara diferente.</p>
+<p>🛡 Protege la pieza principal.</p>
+<p>👑 Gana coronas y desbloquea mejoras visuales de torres y unidades.</p>
+<button id="startBtn">Empezar juego</button>
+</div>
+
+<div id="pase">
+<div id="paseBar"><div id="paseProgreso"></div></div>
+<div id="paseTexto">Coronas: 0 / 20</div>
+</div>
+
+<canvas id="gameCanvas" width="800" height="800"></canvas>
+
+<script>
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+const TILE=80, GRID=10;
+
+let piezaPrincipal={x:4,y:4,hp:200};
+let unidades=[
+{x:0,y:0,tipo:'cañon',hp:50,color:"#FF0000"},
+{x:0,y:1,tipo:'lanzallamas',hp:40,color:"#FF8800"},
+{x:1,y:0,tipo:'misil',hp:60,color:"#00FF00"}
+];
+
+let torres=[
+{x:2,y:2,hp:100,nivel:1,color:"#00AAFF"},
+{x:7,y:7,hp:100,nivel:1,color:"#0088FF"}
+];
+
+let coronas=0;
+let victorias=0;
+let seleccion=null;
+let proyectiles=[];
+let juegoActivo=true;
+
+// Actualizar barra de pase
+function actualizarPase(){
+const maxCoronas=20;
+let porcentaje=Math.min((coronas/maxCoronas)*100,100);
+document.getElementById('paseProgreso').style.width=porcentaje+'%';
+document.getElementById('paseTexto').textContent=`Coronas: ${coronas} / ${maxCoronas}`;
+// Desbloqueos visuales
+torres.forEach(t=>{
+if(coronas>=5 && t.nivel<2){t.nivel=2;t.color="#00FFFF";}
+if(coronas>=10 && t.nivel<3){t.nivel=3;t.color="#88FFFF";}
+});
+}
+
+// Dibujar tablero
+function dibujar(){
+ctx.fillStyle="#333";ctx.fillRect(0,0,canvas.width,canvas.height);
+for(let i=0;i<GRID;i++){for(let j=0;j<GRID;j++){ctx.strokeStyle="#555";ctx.strokeRect(i*TILE,j*TILE,TILE,TILE);}}
+// Pieza principal
+ctx.fillStyle="#FFD700";ctx.fillRect(piezaPrincipal.x*TILE+10,piezaPrincipal.y*TILE+10,TILE-20,TILE-20);
+ctx.fillStyle="#fff";ctx.font="16px Arial";ctx.fillText(`HP:${piezaPrincipal.hp}`,piezaPrincipal.x*TILE+15,piezaPrincipal.y*TILE+25);
+// Unidades
+unidades.forEach(u=>{
+ctx.fillStyle=u.color;
+ctx.fillRect(u.x*TILE+20,u.y*TILE+20,TILE-40,TILE-40);
+ctx.fillStyle="#fff";ctx.font="14px Arial";ctx.fillText(`HP:${u.hp}`,u.x*TILE+25,u.y*TILE+35);
+});
+// Torres
+torres.forEach(t=>{
+ctx.fillStyle=t.color;
+ctx.fillRect(t.x*TILE+10,t.y*TILE+10,TILE-20,TILE-20);
+ctx.fillStyle="#fff";ctx.font="16px Arial";ctx.fillText(`HP:${t.hp} Lv:${t.nivel}`,t.x*TILE+10,t.y*TILE+25);
+});
+// Proyectiles
+proyectiles.forEach(p=>{ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fill();});
+}
+
+// Selección y movimiento
+canvas.addEventListener('click',e=>{
+if(!juegoActivo)return;
+const rect=canvas.getBoundingClientRect();
+const gx=Math.floor((e.clientX-rect.left)/TILE);
+const gy=Math.floor((e.clientY-rect.top)/TILE);
+if(seleccion){seleccion.x=gx;seleccion.y=gy;seleccion=null;}
+else{
+let u=unidades.find(u=>u.x===gx && u.y===gy);
+if(u)seleccion=u;
+}
+});
+
+// Disparos de torres según nivel
+function dispararTorres(){
+torres.forEach(t=>{
+if(t.hp<=0)return;
+if(unidades.length===0)return;
+// Mejoras automáticas con coronas
+if(coronas>=5 && t.nivel<3){t.nivel+=1; t.hp+=20; coronas-=5;}
+let target=unidades.reduce((a,b)=>{
+return Math.hypot(a.x-t.x,a.y-t.y)<Math.hypot(b.x-t.x,b.y-t.y)?a:b;
+});
+for(let i=0;i<t.nivel;i++){
+let angle=Math.atan2((target.y-t.y)*TILE,(target.x-t.x)*TILE)+ (i-1)*0.2;
+proyectiles.push({x:t.x*TILE+40,y:t.y*TILE+40,vx:Math.cos(angle)*5,vy:Math.sin(angle)*5,color:t.color,target:target});
+}
+});
+}
+
+// Actualizar proyectiles
+function actualizarProyectiles(){
+for(let i=proyectiles.length-1;i>=0;i--){
+let p=proyectiles[i];p.x+=p.vx;p.y+=p.vy;
+if(Math.abs(p.x-(p.target.x*TILE+40))<10 && Math.abs(p.y-(p.target.y*TILE+40))<10){
+p.target.hp-=10; proyectiles.splice(i,1);
+if(p.target.hp<=0){unidades=unidades.filter(u=>u.hp>0);coronas+=1; actualizarPase();}
+}
+}
+}
+
+// Verificar fin del juego
+function verificarFin(){
+if(piezaPrincipal.hp<=0){juegoActivo=false; alert(`¡La pieza principal ha sido destruida! Fin del juego.`);}
+if(unidades.length===0){victorias+=1; alert(`¡Victoria! Total coronas: ${coronas}`); unidades=[
+{x:0,y:0,tipo:'cañon',hp:50,color:"#FF0000"},
+{x:0,y:1,tipo:'lanzallamas',hp:40,color:"#FF8800"},
+{x:1,y:0,tipo:'misil',hp:60,color:"#00FF00"}];piezaPrincipal.hp=200;juegoActivo=true;}
+}
+
+// Ciclo principal
+function loop(){
+if(!juegoActivo)return;
+dispararTorres();
+actualizarProyectiles();
+dibujar();
+verificarFin();
+requestAnimationFrame(loop);
+}
+
+// Iniciar juego
+document.getElementById('startBtn').addEventListener('click',()=>{
+document.getElementById('tutorial').style.display='none';
+loop();
+});
+</script>
+</body>
+</html>
